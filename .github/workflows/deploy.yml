@@ -1,0 +1,45 @@
+name: Deploy to Telegram Serverless
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+# Never let two deploys race each other. The push is also conditional on the
+# cloud revision (see the `fetch` step), so a deploy that loses the race is
+# rejected instead of silently overwriting.
+concurrency:
+  group: tgcloud-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      # tgcloud reads the CLI access token from this env var (it is never
+      # written to disk). Create the secret in the repo settings.
+      TGCLOUD_TOKEN: ${{ secrets.TGCLOUD_TOKEN }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # Adopt the current cloud revision so the push below is conditional.
+      - name: Sync cloud revision
+        if: env.TGCLOUD_TOKEN != ''
+        run: npx tgcloud fetch
+
+      - name: Deploy modules
+        if: env.TGCLOUD_TOKEN != ''
+        run: npx tgcloud push
+
+      - name: TGCLOUD_TOKEN is not configured
+        if: env.TGCLOUD_TOKEN == ''
+        run: |
+          echo "::warning::TGCLOUD_TOKEN secret is not set — skipping deploy."
+          echo "Add it under Settings → Secrets and variables → Actions."
